@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { bookings, locations } from "@/lib/db/schema";
+import { bookings, locations, services } from "@/lib/db/schema";
 import { requireAdminOrThrow } from "@/lib/auth/guard";
 import { formatCurrency } from "@/lib/format/currency";
 import { formatDateTime } from "@/lib/format/date";
@@ -32,7 +32,7 @@ async function getDashboardData() {
         .from(bookings)
         .where(and(visibleBookingFilter, eq(bookings.status, "completed"))),
       db
-        .select({ total: sql<number>`coalesce(sum(${bookings.price}), 0)::int` })
+        .select({ total: sql<number>`coalesce(sum(${bookings.finalPrice}), 0)::int` })
         .from(bookings)
         .where(and(visibleBookingFilter, eq(bookings.status, "completed"))),
       db
@@ -49,16 +49,17 @@ async function getDashboardData() {
           first_name: bookings.firstName,
           last_name: bookings.lastName,
           email: bookings.email,
-          service_type: bookings.serviceType,
+          service_name: services.name,
           status: bookings.status,
-          price: bookings.price,
-          date: bookings.dateText,
-          time: bookings.timeText,
+          price: bookings.finalPrice,
+          date: bookings.appointmentDate,
+          time: bookings.appointmentTime,
           created_at: bookings.createdAt,
           location_name: locations.name
         })
         .from(bookings)
-        .leftJoin(locations, eq(bookings.placeId, locations.id))
+        .leftJoin(locations, eq(bookings.locationId, locations.id))
+        .leftJoin(services, eq(bookings.serviceId, services.id))
         .where(visibleBookingFilter)
         .orderBy(desc(bookings.createdAt))
         .limit(10)
@@ -179,7 +180,7 @@ export default async function AdminOverviewPage() {
                     <div className="text-xs text-gray-500">{booking.email}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-foreground">{booking.service_type}</div>
+                    <div className="text-sm text-foreground">{booking.service_name}</div>
                     <div className="text-xs text-gray-500">{booking.location_name ?? "-"}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -189,7 +190,7 @@ export default async function AdminOverviewPage() {
                     <StatusBadge status={booking.status} />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">
-                    {formatCurrency(booking.price)}
+                    {formatCurrency(Number(booking.price))}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     <span suppressHydrationWarning>{formatDateTime(booking.created_at)}</span>

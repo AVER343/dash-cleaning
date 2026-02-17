@@ -1,7 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { getDb } from "@/lib/db/client";
-import { bookings, locations } from "@/lib/db/schema";
+import { bookings, locations, services } from "@/lib/db/schema";
 import { requireAdminOrThrow } from "@/lib/auth/guard";
 import {
   badRequest,
@@ -36,24 +36,24 @@ export async function GET(_request: NextRequest, context: Params) {
         last_name: bookings.lastName,
         email: bookings.email,
         phone: bookings.phone,
-        place_id: bookings.placeId,
+        place_id: bookings.locationId,
         location_name: locations.name,
-        service_type: bookings.serviceType,
+        service_id: bookings.serviceId,
+        service_name: services.name,
         bedrooms: bookings.bedrooms,
         bathrooms: bookings.bathrooms,
         sqft: bookings.sqft,
-        date: bookings.dateText,
-        time: bookings.timeText,
         appointment_date: bookings.appointmentDate,
         appointment_time: bookings.appointmentTime,
-        price: bookings.price,
+        price: bookings.finalPrice,
         status: bookings.status,
         created_at: bookings.createdAt,
         updated_at: bookings.updatedAt,
         deleted_at: bookings.deletedAt
       })
       .from(bookings)
-      .leftJoin(locations, eq(bookings.placeId, locations.id))
+      .leftJoin(locations, eq(bookings.locationId, locations.id))
+      .leftJoin(services, eq(bookings.serviceId, services.id))
       .where(eq(bookings.id, id))
       .limit(1);
 
@@ -97,8 +97,8 @@ export async function PATCH(request: NextRequest, context: Params) {
     const [existing] = await db
       .select({
         id: bookings.id,
-        date: bookings.dateText,
-        time: bookings.timeText
+        appointmentDate: bookings.appointmentDate,
+        appointmentTime: bookings.appointmentTime
       })
       .from(bookings)
       .where(eq(bookings.id, id))
@@ -122,9 +122,21 @@ export async function PATCH(request: NextRequest, context: Params) {
       }
     }
 
-    const mergedDate = parsed.data.date ?? existing.date;
-    const mergedTime = parsed.data.time ?? existing.time;
+    // Since we don't have date/time in data anymore but date and time separate params
+    // We need to see if we need to parse them.
+    const mergedDate = parsed.data.date ?? existing.appointmentDate; // Note: existing.appointmentDate is "YYYY-MM-DD"
+    const mergedTime = parsed.data.time ?? existing.appointmentTime; // Note: existing.appointmentTime is "HH:MM:SS"
+
     const normalizedAppointment = parseAppointment(mergedDate, mergedTime);
+
+    // Check if new date/time are valid if provided
+    if ((parsed.data.date || parsed.data.time) && (!normalizedAppointment.appointmentDate || !normalizedAppointment.appointmentTime)) {
+      return badRequest("Invalid date or time", {
+        date: "Invalid date or time format"
+      });
+    }
+
+    const price = parsed.data.price?.toString();
 
     const [updated] = await db
       .update(bookings)
@@ -133,16 +145,16 @@ export async function PATCH(request: NextRequest, context: Params) {
         lastName: parsed.data.last_name,
         email: parsed.data.email,
         phone: parsed.data.phone,
-        placeId: parsed.data.place_id,
-        serviceType: parsed.data.service_type,
+        locationId: parsed.data.place_id,
+        serviceId: parsed.data.service_id,
+        frequency: parsed.data.frequency,
         bedrooms: parsed.data.bedrooms,
         bathrooms: parsed.data.bathrooms,
         sqft: parsed.data.sqft,
-        dateText: parsed.data.date,
-        timeText: parsed.data.time,
-        appointmentDate: normalizedAppointment.appointmentDate,
-        appointmentTime: normalizedAppointment.appointmentTime,
-        price: parsed.data.price,
+        appointmentDate: normalizedAppointment?.appointmentDate ?? undefined,
+        appointmentTime: normalizedAppointment?.appointmentTime ?? undefined,
+        basePrice: price,
+        finalPrice: price,
         status: parsed.data.status,
         updatedAt: new Date()
       })

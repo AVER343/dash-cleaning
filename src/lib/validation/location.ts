@@ -1,9 +1,7 @@
 import { z } from "zod";
-import { uuidSchema } from "@/lib/validation/common";
 
 export const locationInputSchema = z.object({
   name: z.string().trim().min(1, "Location name is required"),
-  pricing_id: uuidSchema
 });
 
 export const locationUpdateSchema = locationInputSchema.partial();
@@ -18,3 +16,4 @@ export const locationFilterSchema = z.object({
 });
 
 export type LocationInput = z.infer<typeof locationInputSchema>;
+export type LocationFilter = z.infer<typeof locationFilterSchema>;

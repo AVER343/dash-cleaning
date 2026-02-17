@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { locations, pricing } from "@/lib/db/schema";
+import { locations } from "@/lib/db/schema";
 import { requireAdminOrThrow } from "@/lib/auth/guard";
 
 export type ActionState = {
@@ -20,28 +20,15 @@ export async function createLocationAction(
         if (!isAdmin) return { error: "Unauthorized" };
 
         const name = formData.get("name") as string;
-        const pricingId = formData.get("pricing_id") as string;
 
-        if (!name || !pricingId) {
-            return { error: "Name and Pricing are required" };
+        if (!name) {
+            return { error: "Name is required" };
         }
 
         const db = getDb();
 
-        // Verify pricing exists
-        const [pricingRow] = await db
-            .select({ id: pricing.id })
-            .from(pricing)
-            .where(and(eq(pricing.id, pricingId), isNull(pricing.deletedAt)))
-            .limit(1);
-
-        if (!pricingRow) {
-            return { error: "Pricing not found" };
-        }
-
         await db.insert(locations).values({
             name,
-            pricingId,
             updatedAt: new Date(),
         });
 
@@ -63,10 +50,9 @@ export async function updateLocationAction(
         if (!isAdmin) return { error: "Unauthorized" };
 
         const name = formData.get("name") as string;
-        const pricingId = formData.get("pricing_id") as string;
 
-        if (!name || !pricingId) {
-            return { error: "Name and Pricing are required" };
+        if (!name) {
+            return { error: "Name is required" };
         }
 
         const db = getDb();
@@ -75,7 +61,6 @@ export async function updateLocationAction(
             .update(locations)
             .set({
                 name,
-                pricingId,
                 updatedAt: new Date(),
             })
             .where(eq(locations.id, id));

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { pricing } from "@/lib/db/schema";
+import { basePricing } from "@/lib/db/schema";
 import { requireAdminOrThrow } from "@/lib/auth/guard";
 
 export type ActionState = {
@@ -19,23 +19,25 @@ export async function createPricingAction(
         const isAdmin = await requireAdminOrThrow();
         if (!isAdmin) return { error: "Unauthorized" };
 
-        const base = Number(formData.get("base"));
-        const bed = Number(formData.get("bed"));
-        const bath = Number(formData.get("bath"));
-        const sqft = Number(formData.get("sqft"));
+        const service_id = formData.get("service_id") as string;
+        const location_id = formData.get("location_id") as string; // Optional (empty string if not selected)
+        const bedrooms = Number(formData.get("bedrooms"));
+        const bathrooms = Number(formData.get("bathrooms"));
+        const frequency = formData.get("frequency") as "one_time" | "weekly" | "bi_weekly" | "monthly";
+        const base_price = Number(formData.get("base_price"));
 
-        if (isNaN(base) || isNaN(bed) || isNaN(bath) || isNaN(sqft)) {
-            return { error: "Invalid numeric values" };
+        if (!service_id || isNaN(bedrooms) || isNaN(bathrooms) || isNaN(base_price) || !frequency) {
+            return { error: "Missing required fields" };
         }
 
         const db = getDb();
-        await db.insert(pricing).values({
-            base,
-            bed,
-            bath,
-            sqft: String(sqft), // API expects numeric/decimal but DB schema checks might vary, usually drizzle handles it if mapped correctly. 
-            // schema.ts says: sqft: numeric("sqft", { precision: 10, scale: 2 }).notNull()
-            // Drizzle usually expects string for numeric/decimal to preserve precision.
+        await db.insert(basePricing).values({
+            serviceId: service_id,
+            locationId: location_id || null, // Handle empty string as null
+            bedrooms,
+            bathrooms,
+            frequency,
+            basePrice: base_price.toString(),
             updatedAt: new Date(),
         });
 
@@ -43,7 +45,7 @@ export async function createPricingAction(
         return { success: true };
     } catch (error) {
         console.error("Create pricing error:", error);
-        return { error: "Failed to create pricing" };
+        return { error: "Failed to create pricing rule" };
     }
 }
 
@@ -56,32 +58,36 @@ export async function updatePricingAction(
         const isAdmin = await requireAdminOrThrow();
         if (!isAdmin) return { error: "Unauthorized" };
 
-        const base = Number(formData.get("base"));
-        const bed = Number(formData.get("bed"));
-        const bath = Number(formData.get("bath"));
-        const sqft = Number(formData.get("sqft"));
+        const service_id = formData.get("service_id") as string;
+        const location_id = formData.get("location_id") as string;
+        const bedrooms = Number(formData.get("bedrooms"));
+        const bathrooms = Number(formData.get("bathrooms"));
+        const frequency = formData.get("frequency") as "one_time" | "weekly" | "bi_weekly" | "monthly";
+        const base_price = Number(formData.get("base_price"));
 
-        if (isNaN(base) || isNaN(bed) || isNaN(bath) || isNaN(sqft)) {
-            return { error: "Invalid numeric values" };
+        if (!service_id || isNaN(bedrooms) || isNaN(bathrooms) || isNaN(base_price) || !frequency) {
+            return { error: "Missing required fields" };
         }
 
         const db = getDb();
         await db
-            .update(pricing)
+            .update(basePricing)
             .set({
-                base,
-                bed,
-                bath,
-                sqft: String(sqft),
+                serviceId: service_id,
+                locationId: location_id || null,
+                bedrooms,
+                bathrooms,
+                frequency,
+                basePrice: base_price.toString(),
                 updatedAt: new Date(),
             })
-            .where(eq(pricing.id, id));
+            .where(eq(basePricing.id, id));
 
         revalidatePath("/admin/pricing");
         return { success: true };
     } catch (error) {
         console.error("Update pricing error:", error);
-        return { error: "Failed to update pricing" };
+        return { error: "Failed to update pricing rule" };
     }
 }
 
@@ -92,14 +98,14 @@ export async function deletePricingAction(id: string): Promise<ActionState> {
 
         const db = getDb();
         await db
-            .update(pricing)
+            .update(basePricing)
             .set({ deletedAt: new Date() })
-            .where(eq(pricing.id, id));
+            .where(eq(basePricing.id, id));
 
         revalidatePath("/admin/pricing");
         return { success: true };
     } catch (error) {
         console.error("Delete pricing error:", error);
-        return { error: "Failed to delete pricing" };
+        return { error: "Failed to delete pricing rule" };
     }
 }

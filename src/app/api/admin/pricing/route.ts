@@ -1,7 +1,7 @@
-import { and, asc, isNull, sql, SQL } from "drizzle-orm";
+import { and, isNull, sql, SQL, eq, desc } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { getDb } from "@/lib/db/client";
-import { pricing } from "@/lib/db/schema";
+import { basePricing, services, locations } from "@/lib/db/schema";
 import { requireAdminOrThrow } from "@/lib/auth/guard";
 import { badRequest, ok, serverError, unauthorized } from "@/lib/api/json";
 import { pricingFilterSchema, pricingInputSchema } from "@/lib/validation/pricing";
@@ -27,11 +27,19 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { includeDeleted, page, pageSize } = parsedFilters.data;
+    const { includeDeleted, page, pageSize, service_id, location_id } = parsedFilters.data;
     const conditions: SQL[] = [];
 
     if (!includeDeleted) {
-      conditions.push(isNull(pricing.deletedAt));
+      conditions.push(isNull(basePricing.deletedAt));
+    }
+
+    if (service_id) {
+      conditions.push(eq(basePricing.serviceId, service_id));
+    }
+
+    if (location_id) {
+      conditions.push(eq(basePricing.locationId, location_id));
     }
 
     const whereClause = conditions.length ? and(...conditions) : undefined;
@@ -40,22 +48,28 @@ export async function GET(request: NextRequest) {
     const [countRows, rows] = await Promise.all([
       db
         .select({ total: sql<number>`count(*)::int` })
-        .from(pricing)
+        .from(basePricing)
         .where(whereClause),
       db
         .select({
-          id: pricing.id,
-          base: pricing.base,
-          bed: pricing.bed,
-          bath: pricing.bath,
-          sqft: pricing.sqft,
-          created_at: pricing.createdAt,
-          updated_at: pricing.updatedAt,
-          deleted_at: pricing.deletedAt
+          id: basePricing.id,
+          service_id: basePricing.serviceId,
+          service_name: services.name,
+          location_id: basePricing.locationId,
+          location_name: locations.name,
+          bedrooms: basePricing.bedrooms,
+          bathrooms: basePricing.bathrooms,
+          frequency: basePricing.frequency,
+          base_price: basePricing.basePrice,
+          created_at: basePricing.createdAt,
+          updated_at: basePricing.updatedAt,
+          deleted_at: basePricing.deletedAt
         })
-        .from(pricing)
+        .from(basePricing)
+        .leftJoin(services, eq(basePricing.serviceId, services.id))
+        .leftJoin(locations, eq(basePricing.locationId, locations.id))
         .where(whereClause)
-        .orderBy(asc(pricing.createdAt))
+        .orderBy(desc(basePricing.createdAt))
         .limit(pageSize)
         .offset(offset)
     ]);
@@ -65,7 +79,7 @@ export async function GET(request: NextRequest) {
     return ok({
       items: rows.map((row) => ({
         ...row,
-        sqft: Number(row.sqft),
+        base_price: Number(row.base_price),
         created_at: row.created_at.toISOString(),
         updated_at: row.updated_at.toISOString(),
         deleted_at: row.deleted_at ? row.deleted_at.toISOString() : null
@@ -96,16 +110,44 @@ export async function POST(request: NextRequest) {
       return badRequest("Invalid payload", zodErrorToFieldErrors(parsed.error));
     }
 
+    const data = parsed.data;
+
+    // Verify service exists
+    const [service] = await db
+      .select({ id: services.id })
+      .from(services)
+      .where(and(eq(services.id, data.service_id), isNull(services.deletedAt)))
+      .limit(1);
+
+    if (!service) {
+      return badRequest("Invalid service_id");
+    }
+
+    // Verify location if provided
+    if (data.location_id) {
+      const [location] = await db
+        .select({ id: locations.id })
+        .from(locations)
+        .where(and(eq(locations.id, data.location_id), isNull(locations.deletedAt)))
+        .limit(1);
+
+      if (!location) {
+        return badRequest("Invalid location_id");
+      }
+    }
+
     const [inserted] = await db
-      .insert(pricing)
+      .insert(basePricing)
       .values({
-        base: parsed.data.base,
-        bed: parsed.data.bed,
-        bath: parsed.data.bath,
-        sqft: parsed.data.sqft.toString(),
+        serviceId: data.service_id,
+        locationId: data.location_id,
+        bedrooms: data.bedrooms,
+        bathrooms: data.bathrooms,
+        frequency: data.frequency,
+        basePrice: data.base_price.toString(),
         updatedAt: new Date()
       })
-      .returning({ id: pricing.id });
+      .returning({ id: basePricing.id });
 
     return ok({ id: inserted.id }, { status: 201 });
   } catch {

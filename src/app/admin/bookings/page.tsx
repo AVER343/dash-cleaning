@@ -1,7 +1,7 @@
 import { Suspense } from "react";
-import { and, desc, eq, ilike, or, sql, count } from "drizzle-orm";
+import { and, desc, eq, ilike, or, count, isNull, SQL } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { bookings, locations, type BookingStatus } from "@/lib/db/schema";
+import { bookings, locations, services } from "@/lib/db/schema";
 import { requireAdminOrThrow } from "@/lib/auth/guard";
 import { AdminBookingsClient } from "@/components/admin/AdminBookingsClient";
 import { redirect } from "next/navigation";
@@ -30,7 +30,7 @@ export default async function AdminBookingsPage(props: {
   const db = getDb();
 
   // Build filters
-  const filters = [];
+  const filters: SQL[] = [];
 
   if (q) {
     const searchFilter = or(
@@ -39,17 +39,17 @@ export default async function AdminBookingsPage(props: {
       ilike(bookings.email, `%${q}%`),
       ilike(bookings.phone, `%${q}%`)
     );
-    filters.push(searchFilter);
+    if (searchFilter) filters.push(searchFilter);
   }
 
   if (status) {
-    filters.push(eq(bookings.status, status as BookingStatus));
+    filters.push(eq(bookings.status, status as "pending" | "confirmed" | "completed" | "cancelled" | "rescheduled" | "no_show"));
   }
 
   const whereClause = filters.length > 0 ? and(...filters) : undefined;
 
   // Fetch data
-  const [bookingRows, totalResult, locationRows] = await Promise.all([
+  const [bookingRows, totalResult, locationRows, serviceRows] = await Promise.all([
     db
       .select({
         id: bookings.id,
@@ -57,20 +57,23 @@ export default async function AdminBookingsPage(props: {
         last_name: bookings.lastName,
         email: bookings.email,
         phone: bookings.phone,
-        place_id: bookings.placeId,
+        place_id: bookings.locationId,
         location_name: locations.name,
-        service_type: bookings.serviceType,
+        service_id: bookings.serviceId,
+        service_name: services.name,
         bedrooms: bookings.bedrooms,
         bathrooms: bookings.bathrooms,
         sqft: bookings.sqft,
-        date: bookings.dateText,
-        time: bookings.timeText,
-        price: bookings.price,
+        date: bookings.appointmentDate,
+        time: bookings.appointmentTime,
+        price: bookings.finalPrice,
         status: bookings.status,
+        payment_status: bookings.paymentStatus,
         created_at: bookings.createdAt,
       })
       .from(bookings)
-      .leftJoin(locations, eq(bookings.placeId, locations.id))
+      .leftJoin(locations, eq(bookings.locationId, locations.id))
+      .leftJoin(services, eq(bookings.serviceId, services.id))
       .where(whereClause)
       .orderBy(desc(bookings.createdAt))
       .limit(pageSize)
@@ -83,6 +86,11 @@ export default async function AdminBookingsPage(props: {
       .select({ id: locations.id, name: locations.name })
       .from(locations)
       .orderBy(locations.name),
+    db
+      .select({ id: services.id, name: services.name })
+      .from(services)
+      .where(eq(services.isActive, true))
+      .orderBy(services.name),
   ]);
 
   const total = totalResult[0]?.count ?? 0;
@@ -93,6 +101,7 @@ export default async function AdminBookingsPage(props: {
       <AdminBookingsClient
         initialBookings={bookingRows}
         locations={locationRows}
+        services={serviceRows}
         total={total}
         page={page}
         pageCount={pageCount}

@@ -46,11 +46,11 @@
   }
 
   .btn-primary {
-    @apply inline-flex items-center justify-center px-4 py-2.5 bg-accent text-white font-medium rounded-md hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-accent;
+    @apply inline-flex items-center justify-center px-6 py-3 bg-accent text-white font-medium rounded-lg hover:bg-blue-700 transition-all hover:shadow-md active:scale-[0.98] focus:ring-2 focus:ring-offset-2 focus:ring-accent;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center px-4 py-2.5 bg-white border border-border text-foreground font-medium rounded-md hover:bg-gray-50 transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-accent;
+    @apply inline-flex items-center justify-center px-6 py-3 bg-white border border-border text-foreground font-medium rounded-lg hover:bg-gray-50 transition-all hover:shadow-sm active:scale-[0.98] focus:ring-2 focus:ring-offset-2 focus:ring-accent;
   }
 
   .badge {

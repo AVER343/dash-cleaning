@@ -1,37 +1,74 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createPricingAction, updatePricingAction, deletePricingAction } from "@/app/admin/pricing/actions";
-
-import { formatDateTime } from "@/lib/format/date";
 
 type PricingRow = {
     id: string;
-    base: number;
-    bed: number;
-    bath: number;
-    sqft: number;
-    updatedAt: Date;
+    service_id: string;
+    service_name: string | null;
+    location_id: string | null;
+    location_name: string;
+    bedrooms: number;
+    bathrooms: number;
+    frequency: "one_time" | "weekly" | "bi_weekly" | "monthly";
+    base_price: number;
+    updated_at: Date;
 };
 
-export function AdminPricingClient({ pricing }: { pricing: PricingRow[] }) {
+type Option = {
+    id: string;
+    name: string;
+};
+
+type Props = {
+    pricing: PricingRow[];
+    services: Option[];
+    locations: Option[];
+};
+
+export function AdminPricingClient({ pricing, services, locations }: Props) {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [isPending, startTransition] = useTransition();
+
+    const currentServiceId = searchParams.get("service_id") || "";
+    const currentLocationId = searchParams.get("location_id") || "";
+
+    // ... existing modal state ...
     const [showModal, setShowModal] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     const [form, setForm] = useState({
-        base: "0",
-        bed: "0",
-        bath: "0",
-        sqft: "0",
+        service_id: "",
+        location_id: "",
+        bedrooms: "1",
+        bathrooms: "1",
+        frequency: "one_time",
+        base_price: "100",
     });
+
+    function handleFilter(key: string, value: string) {
+        const params = new URLSearchParams(searchParams.toString());
+        if (value) params.set(key, value);
+        else params.delete(key);
+        router.replace(`?${params.toString()}`);
+    }
+
+    // ... existing openCreate/openEdit functions ...
 
     function openCreate() {
         setEditingId(null);
-        setForm({ base: "100", bed: "20", bath: "30", sqft: "0.10" });
+        setForm({
+            service_id: services[0]?.id || "",
+            location_id: "",
+            bedrooms: "1",
+            bathrooms: "1",
+            frequency: "one_time",
+            base_price: "100",
+        });
         setError(null);
         setShowModal(true);
     }
@@ -39,24 +76,30 @@ export function AdminPricingClient({ pricing }: { pricing: PricingRow[] }) {
     function openEdit(row: PricingRow) {
         setEditingId(row.id);
         setForm({
-            base: String(row.base),
-            bed: String(row.bed),
-            bath: String(row.bath),
-            sqft: String(row.sqft),
+            service_id: row.service_id,
+            location_id: row.location_id || "",
+            bedrooms: String(row.bedrooms),
+            bathrooms: String(row.bathrooms),
+            frequency: row.frequency,
+            base_price: String(row.base_price),
         });
         setError(null);
         setShowModal(true);
     }
+
+    // ... existing handleSubmit/handleDelete functions ...
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         setError(null);
 
         const formData = new FormData();
-        formData.append("base", form.base);
-        formData.append("bed", form.bed);
-        formData.append("bath", form.bath);
-        formData.append("sqft", form.sqft);
+        formData.append("service_id", form.service_id);
+        formData.append("location_id", form.location_id);
+        formData.append("bedrooms", form.bedrooms);
+        formData.append("bathrooms", form.bathrooms);
+        formData.append("frequency", form.frequency);
+        formData.append("base_price", form.base_price);
 
         startTransition(async () => {
             try {
@@ -77,7 +120,7 @@ export function AdminPricingClient({ pricing }: { pricing: PricingRow[] }) {
     }
 
     async function handleDelete(id: string) {
-        if (!confirm("Delete this pricing row?")) return;
+        if (!confirm("Delete this pricing rule?")) return;
         startTransition(async () => {
             const result = await deletePricingAction(id);
             if (result.error) alert(result.error);
@@ -88,52 +131,118 @@ export function AdminPricingClient({ pricing }: { pricing: PricingRow[] }) {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-2xl font-bold text-foreground">Pricing Models</h1>
+                    <h1 className="text-2xl font-bold text-foreground">Base Pricing Rules</h1>
                     <p className="text-sm text-gray-500 mt-1">
-                        Configure base rates and multipliers.
+                        Configure base prices per service, location, and size.
                     </p>
                 </div>
                 <button
                     onClick={openCreate}
                     className="btn-primary"
                 >
-                    + Add Pricing Tier
+                    + Add Rule
                 </button>
             </div>
 
+            {/* Filters */}
+            <div className="flex flex-col gap-4 bg-gray-50 p-4 rounded-lg border border-border">
+                <div className="flex flex-col sm:flex-row gap-4">
+                    <div className="w-full sm:w-64">
+                        <label className="block text-xs font-medium text-gray-500 mb-1.5">Filter by Service</label>
+                        <select
+                            className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3"
+                            value={currentServiceId}
+                            onChange={(e) => handleFilter("service_id", e.target.value)}
+                        >
+                            <option value="">All Services</option>
+                            {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                    </div>
+                    <div className="w-full sm:w-64">
+                        <label className="block text-xs font-medium text-gray-500 mb-1.5">Filter by Location</label>
+                        <select
+                            className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3"
+                            value={currentLocationId}
+                            onChange={(e) => handleFilter("location_id", e.target.value)}
+                        >
+                            <option value="">All Locations</option>
+                            {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                        </select>
+                    </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4">
+                    <div className="w-full sm:w-64">
+                        <label className="block text-xs font-medium text-gray-500 mb-1.5">Frequency</label>
+                        <select
+                            className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3"
+                            value={searchParams.get("frequency") || ""}
+                            onChange={(e) => handleFilter("frequency", e.target.value)}
+                        >
+                            <option value="">All Frequencies</option>
+                            <option value="one_time">One Time</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="bi_weekly">Bi-Weekly</option>
+                            <option value="monthly">Monthly</option>
+                        </select>
+                    </div>
+                    <div className="flex gap-2 w-full sm:w-64">
+                        <div className="w-1/2">
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5">Min Price</label>
+                            <input
+                                type="number"
+                                placeholder="Min"
+                                className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3"
+                                value={searchParams.get("min_price") || ""}
+                                onChange={(e) => handleFilter("min_price", e.target.value)}
+                            />
+                        </div>
+                        <div className="w-1/2">
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5">Max Price</label>
+                            <input
+                                type="number"
+                                placeholder="Max"
+                                className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3"
+                                value={searchParams.get("max_price") || ""}
+                                onChange={(e) => handleFilter("max_price", e.target.value)}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             {/* List */}
-            <div className="card p-0 overflow-hidden">
+            <div className="card p-0 overflow-hidden text-sm">
                 <table className="min-w-full divide-y divide-border">
                     <thead className="bg-gray-50/50">
                         <tr>
-                            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Base Price</th>
-                            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Per Room</th>
-                            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Per Sqft</th>
-                            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Last Updated</th>
-                            <th className="relative px-6 py-3"><span className="sr-only">Actions</span></th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-500">Service</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-500">Location</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-500">Specs</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-500">Freq</th>
+                            <th className="px-4 py-3 text-left font-semibold text-gray-500">Price</th>
+                            <th className="px-4 py-3 text-right"><span className="sr-only">Actions</span></th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-border">
                         {pricing.map((row) => (
                             <tr key={row.id} className="hover:bg-gray-50/50 transition-colors">
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">${row.base}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    <span className="mr-3">Bed: +${row.bed}</span>
-                                    <span>Bath: +${row.bath}</span>
+                                <td className="px-4 py-3 font-medium text-foreground">{row.service_name || "Unknown"}</td>
+                                <td className="px-4 py-3 text-gray-500">{row.location_name}</td>
+                                <td className="px-4 py-3 text-gray-500">
+                                    {row.bedrooms} Bed, {row.bathrooms} Bath
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">+${row.sqft}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    <span suppressHydrationWarning>{formatDateTime(row.updatedAt)}</span>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                    <button onClick={() => openEdit(row)} className="text-accent hover:text-blue-700 mr-4 font-medium transition-colors">Edit</button>
-                                    <button onClick={() => handleDelete(row.id)} className="text-danger hover:text-red-700 font-medium transition-colors">Delete</button>
+                                <td className="px-4 py-3 text-gray-500 capitalize">{row.frequency.replace("_", " ")}</td>
+                                <td className="px-4 py-3 font-semibold text-foreground">${row.base_price}</td>
+                                <td className="px-4 py-3 text-right font-medium">
+                                    <button onClick={() => openEdit(row)} className="text-accent hover:text-blue-700 mr-3">Edit</button>
+                                    <button onClick={() => handleDelete(row.id)} className="text-danger hover:text-red-700">Delete</button>
                                 </td>
                             </tr>
                         ))}
                         {pricing.length === 0 && (
                             <tr>
-                                <td colSpan={5} className="px-6 py-8 text-center text-gray-500">No pricing tiers found.</td>
+                                <td colSpan={6} className="px-6 py-8 text-center text-gray-500">No pricing rules found.</td>
                             </tr>
                         )}
                     </tbody>
@@ -142,44 +251,62 @@ export function AdminPricingClient({ pricing }: { pricing: PricingRow[] }) {
 
             {/* Modal */}
             {showModal && (
-                <div className="fixed z-50 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-                    <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-                        <div className="fixed inset-0 bg-gray-500/75 transition-opacity" onClick={() => setShowModal(false)} aria-hidden="true"></div>
-                        <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-                        <div className="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-                            <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                                <h3 className="text-lg leading-6 font-medium text-foreground mb-4" id="modal-title">
-                                    {editingId ? "Edit Pricing Tier" : "Add Pricing Tier"}
-                                </h3>
-                                {error && <div className="mb-4 p-3 bg-red-50 text-danger text-sm rounded-md border border-red-100">{error}</div>}
-                                <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-y-4 sm:grid-cols-2 sm:gap-x-4">
+                <div className="fixed z-50 inset-0 overflow-y-auto">
+                    <div className="flex items-center justify-center min-h-screen px-4">
+                        <div className="fixed inset-0 bg-gray-500/75 transition-opacity" onClick={() => setShowModal(false)}></div>
+                        <div className="bg-white rounded-2xl overflow-hidden shadow-xl transform transition-all sm:max-w-lg w-full p-6 relative">
+                            <h3 className="text-lg font-medium text-foreground mb-4">
+                                {editingId ? "Edit Pricing Rule" : "Add Pricing Rule"}
+                            </h3>
+                            {error && <div className="mb-4 p-3 bg-red-50 text-danger text-sm rounded-md border border-red-100">{error}</div>}
+                            <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Service</label>
+                                    <select required value={form.service_id} onChange={e => setForm({ ...form, service_id: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3">
+                                        <option value="">Select Service</option>
+                                        {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700">Location (Optional)</label>
+                                    <select value={form.location_id} onChange={e => setForm({ ...form, location_id: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3">
+                                        <option value="">All Locations</option>
+                                        {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                                    </select>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700">Base Price</label>
-                                        <input type="number" required min="0" value={form.base} onChange={e => setForm({ ...form, base: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                        <label className="block text-sm font-medium text-gray-700">Bedrooms</label>
+                                        <input type="number" required min="0" value={form.bedrooms} onChange={e => setForm({ ...form, bedrooms: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3" />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700">Sqft Multiplier</label>
-                                        <input type="number" required min="0" step="0.01" value={form.sqft} onChange={e => setForm({ ...form, sqft: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                        <label className="block text-sm font-medium text-gray-700">Bathrooms</label>
+                                        <input type="number" required min="0" value={form.bathrooms} onChange={e => setForm({ ...form, bathrooms: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3" />
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700">Frequency</label>
+                                        <select required value={form.frequency} onChange={e => setForm({ ...form, frequency: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3">
+                                            <option value="one_time">One Time</option>
+                                            <option value="weekly">Weekly</option>
+                                            <option value="bi_weekly">Bi-Weekly</option>
+                                            <option value="monthly">Monthly</option>
+                                        </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700">Per Bedroom</label>
-                                        <input type="number" required min="0" value={form.bed} onChange={e => setForm({ ...form, bed: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                        <label className="block text-sm font-medium text-gray-700">Base Price ($)</label>
+                                        <input type="number" required min="0" step="0.01" value={form.base_price} onChange={e => setForm({ ...form, base_price: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3" />
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700">Per Bathroom</label>
-                                        <input type="number" required min="0" value={form.bath} onChange={e => setForm({ ...form, bath: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
-                                    </div>
+                                </div>
 
-                                    <div className="mt-5 sm:mt-6 sm:col-span-2 sm:grid sm:grid-cols-2 sm:gap-3 sm:grid-flow-row-dense">
-                                        <button type="submit" disabled={isPending} className="w-full btn-primary sm:col-start-2 disabled:opacity-50">
-                                            {isPending ? "Saving..." : "Save"}
-                                        </button>
-                                        <button type="button" onClick={() => setShowModal(false)} className="mt-3 w-full btn-secondary sm:mt-0 sm:col-start-1">
-                                            Cancel
-                                        </button>
-                                    </div>
-                                </form>
-                            </div>
+                                <div className="mt-4 flex gap-3 justify-end">
+                                    <button type="button" onClick={() => setShowModal(false)} className="btn-secondary">Cancel</button>
+                                    <button type="submit" disabled={isPending} className="btn-primary">
+                                        {isPending ? "Saving..." : "Save"}
+                                    </button>
+                                </div>
+                            </form>
                         </div>
                     </div>
                 </div>

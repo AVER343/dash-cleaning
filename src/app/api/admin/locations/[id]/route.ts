@@ -1,7 +1,7 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { getDb } from "@/lib/db/client";
-import { bookings, locations, pricing } from "@/lib/db/schema";
+import { bookings, locations } from "@/lib/db/schema";
 import { requireAdminOrThrow } from "@/lib/auth/guard";
 import {
   badRequest,
@@ -33,7 +33,6 @@ export async function GET(_request: NextRequest, context: Params) {
       .select({
         id: locations.id,
         name: locations.name,
-        pricing_id: locations.pricingId,
         created_at: locations.createdAt,
         updated_at: locations.updatedAt,
         deleted_at: locations.deletedAt
@@ -79,25 +78,10 @@ export async function PATCH(request: NextRequest, context: Params) {
       return badRequest("No fields were provided");
     }
 
-    if (parsed.data.pricing_id) {
-      const [pricingRow] = await db
-        .select({ id: pricing.id })
-        .from(pricing)
-        .where(and(eq(pricing.id, parsed.data.pricing_id), isNull(pricing.deletedAt)))
-        .limit(1);
-
-      if (!pricingRow) {
-        return badRequest("Invalid pricing id", {
-          pricing_id: "Pricing record not found or archived"
-        });
-      }
-    }
-
     const [updated] = await db
       .update(locations)
       .set({
         name: parsed.data.name,
-        pricingId: parsed.data.pricing_id,
         updatedAt: new Date()
       })
       .where(eq(locations.id, id))
@@ -127,7 +111,7 @@ export async function DELETE(_request: NextRequest, context: Params) {
     const [activeBookings] = await db
       .select({ total: sql<number>`count(*)::int` })
       .from(bookings)
-      .where(and(eq(bookings.placeId, id), isNull(bookings.deletedAt)))
+      .where(and(eq(bookings.locationId, id), isNull(bookings.deletedAt)))
       .limit(1);
 
     if ((activeBookings?.total ?? 0) > 0) {

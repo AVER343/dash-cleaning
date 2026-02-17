@@ -10,7 +10,7 @@ import {
 } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { getDb } from "@/lib/db/client";
-import { bookings, locations } from "@/lib/db/schema";
+import { bookings, locations, services } from "@/lib/db/schema";
 import { requireAdminOrThrow } from "@/lib/auth/guard";
 import { badRequest, ok, serverError, unauthorized } from "@/lib/api/json";
 import {
@@ -24,21 +24,20 @@ function serializeBookingRow(
   row: {
     id: string;
     first_name: string;
-    last_name: string;
+    last_name: string | null;
     email: string;
-    phone: string;
-    place_id: string;
+    phone: string | null;
+    place_id: string; // locationId alias
     location_name: string | null;
-    service_type: string;
+    service_id: string; // serviceId alias
+    service_name: string | null;
     bedrooms: number;
     bathrooms: number;
     sqft: number;
-    date: string;
-    time: string;
-    appointment_date: string | null;
-    appointment_time: string | null;
-    price: number;
-    status: "pending" | "confirmed" | "completed" | "cancelled";
+    appointment_date: string;
+    appointment_time: string;
+    price: string;
+    status: string;
     created_at: Date;
     updated_at: Date;
     deleted_at: Date | null;
@@ -82,7 +81,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (status) {
-      conditions.push(eq(bookings.status, status));
+      conditions.push(eq(bookings.status, status as "pending" | "confirmed" | "completed" | "cancelled" | "rescheduled" | "no_show"));
     }
 
     if (q) {
@@ -139,24 +138,24 @@ export async function GET(request: NextRequest) {
           last_name: bookings.lastName,
           email: bookings.email,
           phone: bookings.phone,
-          place_id: bookings.placeId,
+          place_id: bookings.locationId,
           location_name: locations.name,
-          service_type: bookings.serviceType,
+          service_id: bookings.serviceId,
+          service_name: services.name,
           bedrooms: bookings.bedrooms,
           bathrooms: bookings.bathrooms,
           sqft: bookings.sqft,
-          date: bookings.dateText,
-          time: bookings.timeText,
           appointment_date: bookings.appointmentDate,
           appointment_time: bookings.appointmentTime,
-          price: bookings.price,
+          price: bookings.finalPrice,
           status: bookings.status,
           created_at: bookings.createdAt,
           updated_at: bookings.updatedAt,
           deleted_at: bookings.deletedAt
         })
         .from(bookings)
-        .leftJoin(locations, eq(bookings.placeId, locations.id))
+        .leftJoin(locations, eq(bookings.locationId, locations.id))
+        .leftJoin(services, eq(bookings.serviceId, services.id))
         .where(whereClause)
         .orderBy(desc(bookings.createdAt))
         .limit(pageSize)
@@ -209,6 +208,14 @@ export async function POST(request: NextRequest) {
 
     const normalizedAppointment = parseAppointment(data.date, data.time);
 
+    if (!normalizedAppointment.appointmentDate || !normalizedAppointment.appointmentTime) {
+      return badRequest("Invalid date or time", {
+        date: "Invalid date or time format"
+      });
+    }
+
+    const price = data.price.toString();
+
     const [inserted] = await db
       .insert(bookings)
       .values({
@@ -216,16 +223,16 @@ export async function POST(request: NextRequest) {
         lastName: data.last_name,
         email: data.email,
         phone: data.phone,
-        placeId: data.place_id,
-        serviceType: data.service_type,
+        locationId: data.place_id,
+        serviceId: data.service_id!,
+        frequency: data.frequency,
         bedrooms: data.bedrooms,
         bathrooms: data.bathrooms,
         sqft: data.sqft,
-        dateText: data.date,
-        timeText: data.time,
         appointmentDate: normalizedAppointment.appointmentDate,
         appointmentTime: normalizedAppointment.appointmentTime,
-        price: data.price,
+        basePrice: price,
+        finalPrice: price,
         status: data.status,
         updatedAt: new Date()
       })

@@ -3,39 +3,42 @@
 import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBookingAction, updateBookingAction, deleteBookingAction } from "@/app/admin/bookings/actions";
-import { BOOKING_STATUSES, type BookingStatus } from "@/lib/db/schema";
+import { bookingStatusEnum } from "@/lib/db/schema";
 import { formatCurrency } from "@/lib/format/currency";
-import { formatDateTime } from "@/lib/format/date";
 
 import { StatusBadge } from "@/components/admin/StatusBadge";
 
+// Matches what page.tsx returns
 type BookingRow = {
     id: string;
     first_name: string;
-    last_name: string;
+    last_name: string | null;
     email: string;
-    phone: string;
-    place_id: string;
+    phone: string | null;
+    place_id: string; // locationId alias
     location_name: string | null;
-    service_type: string;
+    service_id: string; // serviceId alias
+    service_name: string | null;
     bedrooms: number;
     bathrooms: number;
     sqft: number;
-    date: string;
-    time: string;
-    price: number;
-    status: BookingStatus;
+    date: string; // appointmentDate
+    time: string; // appointmentTime
+    price: string; // finalPrice (decimal string from DB)
+    status: "pending" | "confirmed" | "completed" | "cancelled" | "rescheduled" | "no_show";
+    payment_status: string;
     created_at: Date;
 };
 
-type LocationOption = {
+type Option = {
     id: string;
     name: string;
 };
 
 type Props = {
     initialBookings: BookingRow[];
-    locations: LocationOption[];
+    locations: Option[];
+    services: Option[];
     total: number;
     page: number;
     pageCount: number;
@@ -47,17 +50,18 @@ const INITIAL_FORM = {
     email: "",
     phone: "",
     place_id: "",
-    service_type: "",
+    service_id: "",
     bedrooms: "0",
     bathrooms: "0",
     sqft: "0",
     date: "",
     time: "",
     price: "0",
-    status: "pending" as BookingStatus,
+    status: "pending",
+    payment_status: "pending",
 };
 
-export function AdminBookingsClient({ initialBookings, locations, total, page, pageCount }: Props) {
+export function AdminBookingsClient({ initialBookings, locations, services, total, page, pageCount }: Props) {
     const router = useRouter();
     const searchParams = useSearchParams();
     const [isPending, startTransition] = useTransition();
@@ -97,7 +101,8 @@ export function AdminBookingsClient({ initialBookings, locations, total, page, p
         setEditingId(null);
         setFormData({
             ...INITIAL_FORM,
-            place_id: locations[0]?.id || ""
+            place_id: locations[0]?.id || "",
+            service_id: services[0]?.id || ""
         });
         setError(null);
         setShowModal(true);
@@ -107,18 +112,19 @@ export function AdminBookingsClient({ initialBookings, locations, total, page, p
         setEditingId(row.id);
         setFormData({
             first_name: row.first_name,
-            last_name: row.last_name,
+            last_name: row.last_name || "",
             email: row.email,
-            phone: row.phone,
+            phone: row.phone || "",
             place_id: row.place_id,
-            service_type: row.service_type,
+            service_id: row.service_id,
             bedrooms: String(row.bedrooms),
             bathrooms: String(row.bathrooms),
             sqft: String(row.sqft),
             date: row.date,
             time: row.time,
-            price: String(row.price),
+            price: row.price,
             status: row.status,
+            payment_status: row.payment_status,
         });
         setError(null);
         setShowModal(true);
@@ -156,7 +162,11 @@ export function AdminBookingsClient({ initialBookings, locations, total, page, p
 
         startTransition(async () => {
             const result = await deleteBookingAction(id);
-            if (result.error) alert(result.error);
+            if (result.error) {
+                alert(result.error);
+            } else {
+                router.refresh();
+            }
         });
     }
 
@@ -185,19 +195,19 @@ export function AdminBookingsClient({ initialBookings, locations, total, page, p
                     <input
                         type="text"
                         placeholder="Search by name, email, or phone..."
-                        className="block w-full rounded-md border-input shadow-sm focus:border-ring focus:ring-ring sm:text-sm px-4 py-2"
+                        className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3"
                         defaultValue={currentQ}
                         onChange={(e) => handleSearch(e.target.value)}
                     />
                 </div>
                 <div className="w-full sm:w-48">
                     <select
-                        className="block w-full rounded-md border-input shadow-sm focus:border-ring focus:ring-ring sm:text-sm py-2 px-3"
+                        className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3"
                         value={currentStatus}
                         onChange={(e) => handleStatusFilter(e.target.value)}
                     >
                         <option value="">All Statuses</option>
-                        {BOOKING_STATUSES.map(s => (
+                        {bookingStatusEnum.enumValues.map(s => (
                             <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
                         ))}
                     </select>
@@ -234,7 +244,7 @@ export function AdminBookingsClient({ initialBookings, locations, total, page, p
                                         <div className="flex items-center">
                                             <div className="flex-shrink-0 h-10 w-10">
                                                 <div className="h-10 w-10 rounded-full bg-blue-50 flex items-center justify-center text-accent font-bold">
-                                                    {booking.first_name[0]}{booking.last_name[0]}
+                                                    {booking.first_name[0]}{booking.last_name ? booking.last_name[0] : ''}
                                                 </div>
                                             </div>
                                             <div className="ml-4">
@@ -245,7 +255,7 @@ export function AdminBookingsClient({ initialBookings, locations, total, page, p
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-foreground">{booking.service_type}</div>
+                                        <div className="text-sm text-foreground">{booking.service_name}</div>
                                         <div className="text-xs text-gray-500">{booking.location_name}</div>
                                         <div className="text-xs text-gray-400 mt-0.5">{booking.bedrooms} bd / {booking.bathrooms} ba / {booking.sqft} sqft</div>
                                     </td>
@@ -254,14 +264,21 @@ export function AdminBookingsClient({ initialBookings, locations, total, page, p
                                         <div className="text-sm text-gray-500">{booking.time}</div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm font-medium text-foreground">{formatCurrency(booking.price)}</div>
+                                        <div className="text-sm font-medium text-foreground">{formatCurrency(Number(booking.price))}</div>
+                                        <div className={`text-xs ${booking.payment_status === 'paid' ? 'text-green-600' : 'text-amber-600'}`}>
+                                            {booking.payment_status}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <StatusBadge status={booking.status} />
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <button onClick={() => openEdit(booking)} className="text-accent hover:text-blue-700 mr-4 font-medium transition-colors">Edit</button>
-                                        <button onClick={() => handleDelete(booking.id)} className="text-danger hover:text-red-700 font-medium transition-colors">Delete</button>
+                                        {booking.status !== 'cancelled' && (
+                                            <>
+                                                <button onClick={() => openEdit(booking)} className="text-accent hover:text-blue-700 mr-4 font-medium transition-colors">Edit</button>
+                                                <button onClick={() => handleDelete(booking.id)} className="text-danger hover:text-red-700 font-medium transition-colors">Delete</button>
+                                            </>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
@@ -310,10 +327,9 @@ export function AdminBookingsClient({ initialBookings, locations, total, page, p
             {
                 showModal && (
                     <div className="fixed z-50 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-                        <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+                        <div className="flex items-center justify-center min-h-screen px-4">
                             <div className="fixed inset-0 bg-gray-500/75 transition-opacity" onClick={() => setShowModal(false)} aria-hidden="true"></div>
-                            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-                            <div className="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                            <div className="bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:max-w-lg w-full relative z-10">
                                 <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                                     <h3 className="text-lg leading-6 font-medium text-foreground mb-4" id="modal-title">
                                         {editingId ? "Edit Booking" : "Create New Booking"}
@@ -322,61 +338,74 @@ export function AdminBookingsClient({ initialBookings, locations, total, page, p
                                     <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-y-4 sm:grid-cols-2 sm:gap-x-4">
                                         <div className="sm:col-span-1">
                                             <label className="block text-sm font-medium text-gray-700">First Name</label>
-                                            <input type="text" required value={formData.first_name} onChange={e => setFormData({ ...formData, first_name: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                            <input type="text" required value={formData.first_name} onChange={e => setFormData({ ...formData, first_name: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3" />
                                         </div>
                                         <div className="sm:col-span-1">
                                             <label className="block text-sm font-medium text-gray-700">Last Name</label>
-                                            <input type="text" required value={formData.last_name} onChange={e => setFormData({ ...formData, last_name: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                            <input type="text" required value={formData.last_name} onChange={e => setFormData({ ...formData, last_name: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3" />
                                         </div>
                                         <div className="sm:col-span-2">
                                             <label className="block text-sm font-medium text-gray-700">Email</label>
-                                            <input type="email" required value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                            <input type="email" required value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3" />
                                         </div>
                                         <div className="sm:col-span-2">
                                             <label className="block text-sm font-medium text-gray-700">Phone</label>
-                                            <input type="text" required value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                            <input type="text" required value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3" />
                                         </div>
-                                        <div className="sm:col-span-2">
+                                        <div className="sm:col-span-1">
                                             <label className="block text-sm font-medium text-gray-700">Location</label>
-                                            <select required value={formData.place_id} onChange={e => setFormData({ ...formData, place_id: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm">
+                                            <select required value={formData.place_id} onChange={e => setFormData({ ...formData, place_id: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3">
                                                 <option value="">Select Location</option>
                                                 {locations.map(loc => (
                                                     <option key={loc.id} value={loc.id}>{loc.name}</option>
                                                 ))}
                                             </select>
                                         </div>
-                                        <div className="sm:col-span-2">
-                                            <label className="block text-sm font-medium text-gray-700">Service Type</label>
-                                            <input type="text" required value={formData.service_type} onChange={e => setFormData({ ...formData, service_type: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                        <div className="sm:col-span-1">
+                                            <label className="block text-sm font-medium text-gray-700">Service</label>
+                                            <select required value={formData.service_id} onChange={e => setFormData({ ...formData, service_id: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3">
+                                                <option value="">Select Service</option>
+                                                {services.map(svc => (
+                                                    <option key={svc.id} value={svc.id}>{svc.name}</option>
+                                                ))}
+                                            </select>
                                         </div>
                                         <div className="sm:col-span-1">
                                             <label className="block text-sm font-medium text-gray-700">Bedrooms</label>
-                                            <input type="number" required min="0" value={formData.bedrooms} onChange={e => setFormData({ ...formData, bedrooms: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                            <input type="number" required min="0" value={formData.bedrooms} onChange={e => setFormData({ ...formData, bedrooms: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3" />
                                         </div>
                                         <div className="sm:col-span-1">
                                             <label className="block text-sm font-medium text-gray-700">Bathrooms</label>
-                                            <input type="number" required min="0" value={formData.bathrooms} onChange={e => setFormData({ ...formData, bathrooms: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                            <input type="number" required min="0" value={formData.bathrooms} onChange={e => setFormData({ ...formData, bathrooms: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3" />
                                         </div>
                                         <div className="sm:col-span-1">
                                             <label className="block text-sm font-medium text-gray-700">Sqft</label>
-                                            <input type="number" required min="0" value={formData.sqft} onChange={e => setFormData({ ...formData, sqft: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                            <input type="number" required min="0" value={formData.sqft} onChange={e => setFormData({ ...formData, sqft: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3" />
                                         </div>
                                         <div className="sm:col-span-1">
                                             <label className="block text-sm font-medium text-gray-700">Price ($)</label>
-                                            <input type="number" required min="0" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                            <input type="number" required min="0" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3" />
                                         </div>
                                         <div className="sm:col-span-1">
                                             <label className="block text-sm font-medium text-gray-700">Date</label>
-                                            <input type="text" required value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} placeholder="YYYY-MM-DD" className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                            <input type="text" required value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} placeholder="YYYY-MM-DD" className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3" />
                                         </div>
                                         <div className="sm:col-span-1">
                                             <label className="block text-sm font-medium text-gray-700">Time</label>
-                                            <input type="text" required value={formData.time} onChange={e => setFormData({ ...formData, time: e.target.value })} placeholder="14:00" className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm" />
+                                            <input type="text" required value={formData.time} onChange={e => setFormData({ ...formData, time: e.target.value })} placeholder="14:00" className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3" />
                                         </div>
-                                        <div className="sm:col-span-2">
+                                        <div className="sm:col-span-1">
                                             <label className="block text-sm font-medium text-gray-700">Status</label>
-                                            <select required value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value as BookingStatus })} className="mt-1 block w-full border-input rounded-md shadow-sm focus:ring-accent focus:border-accent sm:text-sm">
-                                                {BOOKING_STATUSES.map(s => (
+                                            <select required value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3">
+                                                {bookingStatusEnum.enumValues.map(s => (
+                                                    <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="sm:col-span-1">
+                                            <label className="block text-sm font-medium text-gray-700">Payment Status</label>
+                                            <select required value={formData.payment_status} onChange={e => setFormData({ ...formData, payment_status: e.target.value })} className="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-accent focus:ring-accent sm:text-sm px-4 py-3">
+                                                {["pending", "authorized", "paid", "failed", "refunded"].map(s => (
                                                     <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
                                                 ))}
                                             </select>

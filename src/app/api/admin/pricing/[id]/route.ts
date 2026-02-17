@@ -1,11 +1,10 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { getDb } from "@/lib/db/client";
-import { locations, pricing } from "@/lib/db/schema";
+import { basePricing, services, locations } from "@/lib/db/schema";
 import { requireAdminOrThrow } from "@/lib/auth/guard";
 import {
   badRequest,
-  conflict,
   notFound,
   ok,
   serverError,
@@ -31,17 +30,23 @@ export async function GET(_request: NextRequest, context: Params) {
 
     const [row] = await db
       .select({
-        id: pricing.id,
-        base: pricing.base,
-        bed: pricing.bed,
-        bath: pricing.bath,
-        sqft: pricing.sqft,
-        created_at: pricing.createdAt,
-        updated_at: pricing.updatedAt,
-        deleted_at: pricing.deletedAt
+        id: basePricing.id,
+        service_id: basePricing.serviceId,
+        service_name: services.name,
+        location_id: basePricing.locationId,
+        location_name: locations.name,
+        bedrooms: basePricing.bedrooms,
+        bathrooms: basePricing.bathrooms,
+        frequency: basePricing.frequency,
+        base_price: basePricing.basePrice,
+        created_at: basePricing.createdAt,
+        updated_at: basePricing.updatedAt,
+        deleted_at: basePricing.deletedAt
       })
-      .from(pricing)
-      .where(eq(pricing.id, id))
+      .from(basePricing)
+      .leftJoin(services, eq(basePricing.serviceId, services.id))
+      .leftJoin(locations, eq(basePricing.locationId, locations.id))
+      .where(eq(basePricing.id, id))
       .limit(1);
 
     if (!row) {
@@ -50,7 +55,7 @@ export async function GET(_request: NextRequest, context: Params) {
 
     return ok({
       ...row,
-      sqft: Number(row.sqft),
+      base_price: Number(row.base_price),
       created_at: row.created_at.toISOString(),
       updated_at: row.updated_at.toISOString(),
       deleted_at: row.deleted_at ? row.deleted_at.toISOString() : null
@@ -83,17 +88,18 @@ export async function PATCH(request: NextRequest, context: Params) {
     }
 
     const [updated] = await db
-      .update(pricing)
+      .update(basePricing)
       .set({
-        base: parsed.data.base,
-        bed: parsed.data.bed,
-        bath: parsed.data.bath,
-        sqft:
-          parsed.data.sqft === undefined ? undefined : parsed.data.sqft.toString(),
+        serviceId: parsed.data.service_id,
+        locationId: parsed.data.location_id,
+        bedrooms: parsed.data.bedrooms,
+        bathrooms: parsed.data.bathrooms,
+        frequency: parsed.data.frequency,
+        basePrice: parsed.data.base_price?.toString(),
         updatedAt: new Date()
       })
-      .where(eq(pricing.id, id))
-      .returning({ id: pricing.id });
+      .where(eq(basePricing.id, id))
+      .returning({ id: basePricing.id });
 
     if (!updated) {
       return notFound("Pricing row not found");
@@ -116,24 +122,14 @@ export async function DELETE(_request: NextRequest, context: Params) {
 
     const { id } = await context.params;
 
-    const [activeLocations] = await db
-      .select({ total: sql<number>`count(*)::int` })
-      .from(locations)
-      .where(and(eq(locations.pricingId, id), isNull(locations.deletedAt)))
-      .limit(1);
-
-    if ((activeLocations?.total ?? 0) > 0) {
-      return conflict("Cannot delete pricing with active locations");
-    }
-
     const [updated] = await db
-      .update(pricing)
+      .update(basePricing)
       .set({
         deletedAt: new Date(),
         updatedAt: new Date()
       })
-      .where(and(eq(pricing.id, id), isNull(pricing.deletedAt)))
-      .returning({ id: pricing.id });
+      .where(and(eq(basePricing.id, id), isNull(basePricing.deletedAt)))
+      .returning({ id: basePricing.id });
 
     if (!updated) {
       return notFound("Pricing row not found or already deleted");

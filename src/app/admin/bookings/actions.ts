@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { bookings, locations } from "@/lib/db/schema";
 import { requireAdminOrThrow } from "@/lib/auth/guard";
@@ -50,22 +50,32 @@ export async function createBookingAction(
 
         const normalized = parseAppointment(data.date, data.time);
 
+        if (!normalized.appointmentDate || !normalized.appointmentTime) {
+            return { error: "Invalid date or time format" };
+        }
+
+        // Default basePrice to finalPrice for now if not calculated separately
+        const price = data.price.toString();
+
         await db.insert(bookings).values({
             firstName: data.first_name,
             lastName: data.last_name,
             email: data.email,
             phone: data.phone,
-            placeId: data.place_id,
-            serviceType: data.service_type,
+            locationId: data.place_id,
+            serviceId: data.service_id!,
+            frequency: data.frequency,
             bedrooms: data.bedrooms,
             bathrooms: data.bathrooms,
             sqft: data.sqft,
-            dateText: data.date,
-            timeText: data.time,
             appointmentDate: normalized.appointmentDate,
             appointmentTime: normalized.appointmentTime,
-            price: data.price,
+            basePrice: price,
+            finalPrice: price,
+            addOnTotal: "0",
             status: data.status,
+            paymentStatus: data.payment_status as "pending" | "paid" | "failed" | "refunded",
+            notes: data.notes,
             updatedAt: new Date(),
         });
 
@@ -89,6 +99,7 @@ export async function updateBookingAction(
         }
 
         const rawData = Object.fromEntries(formData.entries());
+
         const parsed = bookingUpdateSchema.safeParse(rawData);
 
         if (!parsed.success) {
@@ -104,6 +115,12 @@ export async function updateBookingAction(
         const normalized =
             data.date && data.time ? parseAppointment(data.date, data.time) : null;
 
+        if ((data.date || data.time) && (!normalized?.appointmentDate || !normalized?.appointmentTime)) {
+            return { error: "Invalid date or time format" };
+        }
+
+        const price = data.price?.toString();
+
         await db
             .update(bookings)
             .set({
@@ -111,17 +128,19 @@ export async function updateBookingAction(
                 lastName: data.last_name,
                 email: data.email,
                 phone: data.phone,
-                placeId: data.place_id,
-                serviceType: data.service_type,
+                locationId: data.place_id,
+                serviceId: data.service_id,
+                frequency: data.frequency,
                 bedrooms: data.bedrooms,
                 bathrooms: data.bathrooms,
                 sqft: data.sqft,
-                dateText: data.date,
-                timeText: data.time,
-                appointmentDate: normalized?.appointmentDate,
-                appointmentTime: normalized?.appointmentTime,
-                price: data.price,
+                appointmentDate: normalized?.appointmentDate ?? undefined,
+                appointmentTime: normalized?.appointmentTime ?? undefined,
+                basePrice: price,
+                finalPrice: price,
                 status: data.status,
+                paymentStatus: data.payment_status as "pending" | "paid" | "failed" | "refunded",
+                notes: data.notes,
                 updatedAt: new Date(),
             })
             .where(eq(bookings.id, id));
@@ -144,7 +163,9 @@ export async function deleteBookingAction(id: string): Promise<ActionState> {
         const db = getDb();
         await db
             .update(bookings)
-            .set({ deletedAt: new Date() })
+            .set({
+                status: 'cancelled'
+            })
             .where(eq(bookings.id, id));
 
         revalidatePath("/admin/bookings");

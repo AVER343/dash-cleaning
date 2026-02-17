@@ -1,7 +1,7 @@
-import { and, asc, eq, isNull, sql, SQL } from "drizzle-orm";
+import { and, asc, isNull, sql, SQL } from "drizzle-orm";
 import { NextRequest } from "next/server";
 import { getDb } from "@/lib/db/client";
-import { locations, pricing } from "@/lib/db/schema";
+import { locations } from "@/lib/db/schema";
 import { requireAdminOrThrow } from "@/lib/auth/guard";
 import { badRequest, ok, serverError, unauthorized } from "@/lib/api/json";
 import { locationFilterSchema, locationInputSchema } from "@/lib/validation/location";
@@ -46,17 +46,11 @@ export async function GET(request: NextRequest) {
         .select({
           id: locations.id,
           name: locations.name,
-          pricing_id: locations.pricingId,
           created_at: locations.createdAt,
           updated_at: locations.updatedAt,
-          deleted_at: locations.deletedAt,
-          pricing_base: pricing.base,
-          pricing_bed: pricing.bed,
-          pricing_bath: pricing.bath,
-          pricing_sqft: pricing.sqft
+          deleted_at: locations.deletedAt
         })
         .from(locations)
-        .leftJoin(pricing, eq(locations.pricingId, pricing.id))
         .where(whereClause)
         .orderBy(asc(locations.name))
         .limit(pageSize)
@@ -68,10 +62,6 @@ export async function GET(request: NextRequest) {
     return ok({
       items: rows.map((row) => ({
         ...row,
-        pricing_sqft:
-          row.pricing_sqft !== null && row.pricing_sqft !== undefined
-            ? Number(row.pricing_sqft)
-            : null,
         created_at: row.created_at.toISOString(),
         updated_at: row.updated_at.toISOString(),
         deleted_at: row.deleted_at ? row.deleted_at.toISOString() : null
@@ -102,23 +92,10 @@ export async function POST(request: NextRequest) {
       return badRequest("Invalid payload", zodErrorToFieldErrors(parsed.error));
     }
 
-    const [pricingRow] = await db
-      .select({ id: pricing.id })
-      .from(pricing)
-      .where(and(eq(pricing.id, parsed.data.pricing_id), isNull(pricing.deletedAt)))
-      .limit(1);
-
-    if (!pricingRow) {
-      return badRequest("Invalid pricing id", {
-        pricing_id: "Pricing record not found or archived"
-      });
-    }
-
     const [inserted] = await db
       .insert(locations)
       .values({
         name: parsed.data.name,
-        pricingId: parsed.data.pricing_id,
         updatedAt: new Date()
       })
       .returning({ id: locations.id });
